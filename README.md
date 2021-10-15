@@ -20,6 +20,4 @@ A test workflow in this repository runs against all active Python 3 release mino
 
 [![Test status](../../actions/workflows/test.yml/badge.svg)](../../actions/workflows/test.yml)
 
-Run the test suite locally using either:
-- `python3 -m unittest discover`
-- `pytest`
+Run the test suite locally with `pytest`.
