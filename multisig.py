@@ -1,4 +1,6 @@
 # Asynchronous multisignature algorithms using FROST-like techniques
+#
+# Uses the more efficient method from https://eprint.iacr.org/2021/1375
 
 from dumb25519 import *
 import asyncio
@@ -211,12 +213,11 @@ class Player:
 		
 		return True
 	
-	def rho(self):
+	def nonce_hash(self):
 		nonce_D = [self.L[beta][-1][0] for beta in self.signers]
 		nonce_E = [self.L[beta][-1][1] for beta in self.signers]
-		B = hash_to_scalar('Spark multisig B',self.signers,nonce_D,nonce_E)
 
-		return {beta:hash_to_scalar('Spark multisig rho',B,beta,self.statement.m,self.statement.S,self.statement.T) for beta in self.signers}
+		return hash_to_scalar('Spark multisig nonce hash',self.statement.m,self.statement.S,self.statement.T,self.signers,nonce_D,nonce_E)
 
 	async def sign(self,signers,statement,witness):
 		# This player must be a signer
@@ -227,17 +228,17 @@ class Player:
 		self.statement = statement
 		
 		# Prepare binders
-		rho = self.rho()
-		rho_F_T = hash_to_scalar('Spark multisig F/T',[rho[beta] for beta in self.signers])
-		rho_H = hash_to_scalar('Spark multisig H',[rho[beta] for beta in self.signers])
+		rho = self.nonce_hash()
+		rho_F_T = hash_to_scalar('Spark multisig F/T',rho)
+		rho_H = hash_to_scalar('Spark multisig H',rho)
 
 		# Compute initial proof statements
 		A1 = rho_F_T*F + rho_H*H
 		A2 = rho_F_T*statement.T
 		for beta in self.signers:
 			(D,E) = self.L[beta][-1]
-			A1 += D + rho[beta]*E
-			A2 += D + rho[beta]*E
+			A1 += D + rho*E
+			A2 += D + rho*E
 		
 		self.A1 = A1
 		self.A2 = A2
@@ -248,7 +249,7 @@ class Player:
 		# Responses
 		(d,e) = self.l[-1]
 		self.t1 = c*witness.x + rho_F_T
-		self._t2[self.alpha] = d + rho[self.alpha]*e + lagrange(self.alpha,self.signers)*self.r*c
+		self._t2[self.alpha] = d + rho*e + lagrange(self.alpha,self.signers)*self.r*c
 		self.t3 = c*witness.z + rho_H
 
 		# Send to other players
@@ -272,8 +273,8 @@ class Player:
 				Y += Scalar(beta**j)*self.C[gamma][j]
 		
 		(D,E) = self.L[beta][-1]
-		rho = self.rho()
-		if not t2*G == D + rho[beta]*E + challenge(self.statement,self.A1,self.A2)*lagrange(beta,self.signers)*Y:
+		rho = self.nonce_hash()
+		if not t2*G == D + rho*E + challenge(self.statement,self.A1,self.A2)*lagrange(beta,self.signers)*Y:
 			raise ArithmeticError
 		
 		# Store the neighbor's data
