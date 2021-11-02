@@ -1,12 +1,8 @@
-# Spend transaction
+# Mint transaction
 
 import address
-import bpplus
-import chaum
 import coin
-import dumb25519
-from dumb25519 import Point, Scalar, PointVector, hash_to_scalar
-import parallel
+from dumb25519 import Point, Scalar, hash_to_scalar
 import schnorr
 
 class ProtocolParameters:
