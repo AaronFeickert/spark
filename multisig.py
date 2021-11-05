@@ -214,10 +214,14 @@ class Player:
 		return True
 	
 	def nonce_hash(self):
-		nonce_D = [self.L[beta][-1][0] for beta in self.signers]
-		nonce_E = [self.L[beta][-1][1] for beta in self.signers]
+		rho = []
+		for u in range(len(self.statement.S)):
+			nonce_D = [self.L[beta][-1-u][0] for beta in self.signers]
+			nonce_E = [self.L[beta][-1-u][1] for beta in self.signers]
 
-		return hash_to_scalar('Spark multisig nonce hash',self.statement.m,self.statement.S,self.statement.T,self.signers,nonce_D,nonce_E)
+			rho.append(hash_to_scalar('Spark multisig nonce hash',self.statement.m,self.statement.S[u],self.statement.T[u],self.signers,nonce_D,nonce_E))
+		
+		return rho
 
 	async def sign(self,signers,statement,witness):
 		# This player must be a signer
@@ -226,19 +230,24 @@ class Player:
 
 		self.signers = sorted(signers)
 		self.statement = statement
+		w = len(self.statement.S)
 		
 		# Prepare binders
 		rho = self.nonce_hash()
-		rho_F_T = hash_to_scalar('Spark multisig F/T',rho)
-		rho_H = hash_to_scalar('Spark multisig H',rho)
+		rho_F_T = [hash_to_scalar('Spark multisig F/T',rho[u]) for u in range(w)]
+		rho_H = [hash_to_scalar('Spark multisig H',rho[u]) for u in range(w)]
 
 		# Compute initial proof statements
-		A1 = rho_F_T*F + rho_H*H
-		A2 = rho_F_T*statement.T
-		for beta in self.signers:
-			(D,E) = self.L[beta][-1]
-			A1 += D + rho*E
-			A2 += D + rho*E
+		A1 = Z
+		A2 = []
+		for u in range(w):
+			A1 += rho_F_T[u]*F + rho_H[u]*H
+			A2.append(rho_F_T[u]*statement.T[u])
+
+			for beta in self.signers:
+				(D,E) = self.L[beta][-1-u]
+				A1 += D + rho[u]*E
+				A2[u] += D + rho[u]*E
 		
 		self.A1 = A1
 		self.A2 = A2
@@ -247,10 +256,14 @@ class Player:
 		c = challenge(statement,A1,A2)
 		
 		# Responses
-		(d,e) = self.l[-1]
-		self.t1 = c*witness.x + rho_F_T
-		self._t2[self.alpha] = d + rho*e + lagrange(self.alpha,self.signers)*self.r*c
-		self.t3 = c*witness.z + rho_H
+		self.t1 = []
+		self._t2[self.alpha] = Scalar(0)
+		self.t3 = Scalar(0)
+		for u in range(w):
+			(d,e) = self.l[-1-u]
+			self.t1.append(rho_F_T[u] + c**u*witness.x[u])
+			self._t2[self.alpha] += d + rho[u]*e + lagrange(self.alpha,self.signers)*self.r*c**u
+			self.t3 += rho_H[u] + c**u*witness.z[u]
 
 		# Send to other players
 		tasks = [asyncio.ensure_future(self.neighbors[beta].get_sign(self.alpha,self._t2[self.alpha])) for beta in signers if beta != self.alpha]
@@ -272,9 +285,14 @@ class Player:
 			for j in range(self.t):
 				Y += Scalar(beta**j)*self.C[gamma][j]
 		
-		(D,E) = self.L[beta][-1]
-		rho = self.nonce_hash()
-		if not t2*G == D + rho*E + challenge(self.statement,self.A1,self.A2)*lagrange(beta,self.signers)*Y:
+		R = Z
+		c = challenge(self.statement,self.A1,self.A2)
+		lambd = lagrange(beta,self.signers)
+		for u in range(len(self.statement.S)):
+			(D,E) = self.L[beta][-1-u]
+			rho = self.nonce_hash()
+			R += D + rho[u]*E + c**u*lambd*Y
+		if not t2*G == R:
 			raise ArithmeticError
 		
 		# Store the neighbor's data

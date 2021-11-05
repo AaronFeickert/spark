@@ -8,6 +8,7 @@ async def test_multisig():
 	# Test parameters
 	nu = 4
 	t = 2
+	w = 3
 
 	# Set up the players
 	players = {}
@@ -34,16 +35,17 @@ async def test_multisig():
 		s1 = players[alpha].s1
 		s2 = players[alpha].s2
 
-	# Precompute signing nonce
-	tasks = [asyncio.ensure_future(players[alpha].precompute()) for alpha in range(1,nu+1)]
-	await asyncio.wait(tasks)
+	# Precompute signing nonces
+	for u in range(w):
+		tasks = [asyncio.ensure_future(players[alpha].precompute()) for alpha in range(1,nu+1)]
+		await asyncio.wait(tasks)
 
 	# Sign message
 	m = 'Our first obligation is to keep the foo counters turning'
-	x = random_scalar()
-	z = random_scalar()
-	S = x*F + D + z*H
-	T = x.invert()*(U - D)
+	x = [random_scalar() for _ in range(w)]
+	z = [random_scalar() for _ in range(w)]
+	S = [x[u]*F + D + z[u]*H for u in range(w)]
+	T = [x[u].invert()*(U - D) for u in range(w)]
 
 	statement = SigningStatement(m,S,T)
 	witness = SigningWitness(x,z)
@@ -54,8 +56,8 @@ async def test_multisig():
 
 	# Check signature values match across all signers
 	A1 = Z
-	A2 = Z
-	t1 = Scalar(0)
+	A2 = []
+	t1 = []
 	t2 = Scalar(0)
 	t3 = Scalar(0)
 	flag = False
@@ -84,5 +86,17 @@ async def test_multisig():
 	
 	# Verify the signature
 	c = challenge(statement,A1,A2)
-	assert A1 + c*S == t1*F + t2*G + t3*H
-	assert A2 + c*U == t1*T + t2*G
+
+	L = Z
+	R = Z
+	for u in range(w):
+		L += c**u*S[u]
+		R += t1[u]*F
+	assert A1 + L == R + t2*G + t3*H
+	
+	L = Z
+	R = Z
+	for u in range(w):
+		L += A2[u] + c**u*U
+		R += t1[u]*T[u]
+	assert L == R + t2*G
