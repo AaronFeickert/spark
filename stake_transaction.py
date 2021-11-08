@@ -1,16 +1,14 @@
 # Stake transaction
 
 import address
-import bpplus
 import chaum
 import coin
-import dumb25519
 from dumb25519 import Point, Scalar, PointVector, hash_to_scalar
 import parallel
 import schnorr
 
 class ProtocolParameters:
-	def __init__(self,F,G,H,U,value_bytes,memo_bytes,n,m,stake):
+	def __init__(self,F,G,H,U,value_bytes,n,m,stake):
 		if not isinstance(F,Point):
 			raise TypeError('Bad type for parameter F!')
 		if not isinstance(G,Point):
@@ -20,8 +18,6 @@ class ProtocolParameters:
 		if not isinstance(U,Point):
 			raise TypeError('Bad type for parameter U!')
 		if not isinstance(value_bytes,int) or value_bytes < 1:
-			raise ValueError('Bad type or value for parameter value_bytes!')
-		if not isinstance(memo_bytes,int) or memo_bytes < 1:
 			raise ValueError('Bad type or value for parameter value_bytes!')
 		if not isinstance(n,int) or n < 1:
 			raise ValueError('Bad type or value for parameter n!')
@@ -35,7 +31,6 @@ class ProtocolParameters:
 		self.H = H
 		self.U = U
 		self.value_bytes = value_bytes
-		self.memo_bytes = memo_bytes
 		self.n = n
 		self.m = m
 		self.stake = stake
@@ -117,9 +112,8 @@ class StakeTransaction:
 			raise TypeError('Bad type for parameters!')
 
 		# Check tag uniqueness
-		for tag in self.T:
-			if tags is not None and tag in tags:
-				raise ValueError('Tag has been seen before!')
+		if tags is not None and self.T in tags:
+			raise ValueError('Tag has been seen before!')
 
 		# Check fee
 		if self.fee < 0 or self.fee.bit_length() > params.value_bytes:
