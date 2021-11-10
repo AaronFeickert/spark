@@ -13,7 +13,7 @@ class TestPay(unittest.TestCase):
 		pay_params = pay.PayParameters(address_params.F,address_params.G,coin_params.H,coin_params.value_bytes)
 
 		public = address.SpendKey(address_params).public_address()
-		coin_ = coin.Coin(coin_params,public,1,'Test memo',False,True)
+		coin_ = coin.Coin(coin_params,public,1,'Test memo',coin.CoinType.STANDARD,True)
 
 		witness = pay.PayWitness(coin_.k)
 		statement = pay.PayStatement(pay_params,'Proof context',coin_,coin_.k*public.Q1,coin_.k*address_params.F,public)

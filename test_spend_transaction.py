@@ -41,7 +41,7 @@ class TestSpend(unittest.TestCase):
 		# Generate the input set and real coins
 		inputs = []
 		for _ in range(protocol_params.n**protocol_params.m):
-			inputs.append(coin.Coin(coin_params,random_public_address(),randrange(0,2**(8*coin_params.value_bytes)),'Input memo',False,False))
+			inputs.append(coin.Coin(coin_params,random_public_address(),randrange(0,2**(8*coin_params.value_bytes)),'Input memo',coin.CoinType.STANDARD,False))
 		l = sample(range(len(inputs)),w)
 		for u in range(w):
 			inputs[l[u]] = coin.Coin(
@@ -49,7 +49,7 @@ class TestSpend(unittest.TestCase):
 				public[u % len(public)],
 				input_values[u],
 				'Spend memo',
-				False,
+				coin.CoinType.STANDARD,
 				False
 			)
 			inputs[l[u]].identify(coin_params,incoming)
@@ -64,7 +64,7 @@ class TestSpend(unittest.TestCase):
 				random_public_address(),
 				output_values[j],
 				'Output memo',
-				False,
+				coin.CoinType.STANDARD,
 				True
 			))
 

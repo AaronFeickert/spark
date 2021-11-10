@@ -43,7 +43,7 @@ class MintTransaction:
 			public,
 			value,
 			memo,
-			True,
+			coin.CoinType.MINT,
 			True
 		)
 		self.value = value

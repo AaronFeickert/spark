@@ -35,14 +35,14 @@ class TestStake(unittest.TestCase):
 		# Generate the input set and real coins
 		inputs = []
 		for _ in range(protocol_params.n**protocol_params.m):
-			inputs.append(coin.Coin(coin_params,random_public_address(),randrange(0,2**(8*coin_params.value_bytes)),'Input memo',False,False))
+			inputs.append(coin.Coin(coin_params,random_public_address(),randrange(0,2**(8*coin_params.value_bytes)),'Input memo',coin.CoinType.STANDARD,False))
 		l = randrange(0,len(inputs))
 		inputs[l] = coin.Coin(
 			coin_params,
 			public,
 			input_value,
 			'Spend memo',
-			False,
+			coin.CoinType.STANDARD,
 			False
 		)
 		inputs[l].identify(coin_params,incoming)
