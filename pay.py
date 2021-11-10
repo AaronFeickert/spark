@@ -126,11 +126,15 @@ def prove(statement,witness):
 
 	# Decrypt recipient data
 	aead_key = hash_to_scalar('aead',statement.K_der)
-	data_bytes = util.aead_decrypt(aead_key,'Spend recipient data',statement.coin.enc)
-	if data_bytes is not None:
-		value = int.from_bytes(data_bytes[:statement.value_bytes],'little')
+	if statement.coin.is_mint:
+		util.aead_decrypt(aead_key,'Mint recipient data',statement.coin.enc)
+		value = statement.coin.value
 	else:
-		raise ArithmeticError('Bad recipient data!')
+		data_bytes = util.aead_decrypt(aead_key,'Spend recipient data',statement.coin.enc)
+		if data_bytes is not None:
+			value = int.from_bytes(data_bytes[:statement.value_bytes],'little')
+		else:
+			raise ArithmeticError('Bad recipient data!')
 	
 	if not statement.coin.C == Scalar(value)*statement.G + hash_to_scalar('val',statement.K_der)*statement.H:
 		raise ArithmeticError('Invalid pay statement!')
@@ -164,11 +168,15 @@ def verify(statement,proof):
 
 	# Decrypt recipient data
 	aead_key = hash_to_scalar('aead',statement.K_der)
-	data_bytes = util.aead_decrypt(aead_key,'Spend recipient data',statement.coin.enc)
-	if data_bytes is not None:
-		value = int.from_bytes(data_bytes[:statement.value_bytes],'little')
+	if statement.coin.is_mint:
+		util.aead_decrypt(aead_key,'Mint recipient data',statement.coin.enc)
+		value = statement.coin.value
 	else:
-		raise ArithmeticError('Bad recipient data!')
+		data_bytes = util.aead_decrypt(aead_key,'Spend recipient data',statement.coin.enc)
+		if data_bytes is not None:
+			value = int.from_bytes(data_bytes[:statement.value_bytes],'little')
+		else:
+			raise ArithmeticError('Bad recipient data!')
 
 	if not statement.coin.C == Scalar(value)*statement.G + hash_to_scalar('val',statement.K_der)*statement.H:
 		raise ArithmeticError('Failed pay verification!')

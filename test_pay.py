@@ -13,17 +13,19 @@ class TestPay(unittest.TestCase):
 		pay_params = pay.PayParameters(address_params.F,address_params.G,coin_params.H,coin_params.value_bytes)
 
 		public = address.SpendKey(address_params).public_address()
-		coin_ = coin.Coin(coin_params,public,1,'Test memo',False,True)
 
-		witness = pay.PayWitness(coin_.k)
-		statement = pay.PayStatement(pay_params,'Proof context',coin_,coin_.k*public.Q1,coin_.k*address_params.F,public)
+		for is_mint in [True,False]:
+			coin_ = coin.Coin(coin_params,public,1,'Test memo',is_mint,True)
 
-		proof = pay.prove(statement,witness)
-		pay.verify(statement,proof)
+			witness = pay.PayWitness(coin_.k)
+			statement = pay.PayStatement(pay_params,'Proof context',coin_,coin_.k*public.Q1,coin_.k*address_params.F,public)
 
-		with self.assertRaises(ArithmeticError):
-			statement.context = 'Evil context'
+			proof = pay.prove(statement,witness)
 			pay.verify(statement,proof)
+
+			with self.assertRaises(ArithmeticError):
+				statement.context = 'Evil context'
+				pay.verify(statement,proof)
 
 if __name__ == '__main__':
 	unittest.main()
