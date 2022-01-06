@@ -1,19 +1,20 @@
 # Address generation
 
-from dumb25519 import Point, Scalar, random_scalar, hash_to_scalar
+from dumb25519 import Point, Scalar, hash_to_point, random_scalar, hash_to_scalar
+import util
 
 class AddressParameters:
-	def __init__(self,F,G,lookahead=0):
+	def __init__(self,F,G,index_bytes):
 		if not isinstance(F,Point):
 			raise TypeError('Bad type for parameter F!')
 		if not isinstance(G,Point):
 			raise TypeError('Bad type for parameter G!')
-		if not isinstance(lookahead,int) or not lookahead >= 0:
-			raise ValueError('Bad type or value for diversifier lookahead!')
+		if not isinstance(index_bytes,int) or not index_bytes > 0:
+			raise TypeError('Bad type or value for index_bytes!')
 		
 		self.F = F
 		self.G = G
-		self.lookahead = lookahead
+		self.index_bytes = index_bytes
 
 class SpendKey:
 	def __init__(self,params):
@@ -38,20 +39,22 @@ class SpendKey:
 		return IncomingViewKey(self.params,self.base_address(),s1)
 	
 	def base_address(self):
-		Q1 = self.s1*self.params.F
-		Q2 = self.s2*self.params.F + self.r*self.params.G
+		P2 = self.s2*self.params.F + self.r*self.params.G
 
-		return BaseAddress(Q1,Q2)
+		return BaseAddress(P2)
 	
-	def public_address(self,i=0):
-		if not isinstance(i,int) or not i >= 0 or not i <= self.params.lookahead:
-			raise TypeError('Bad type or value for diversifier!')
-		
-		Q0 = hash_to_scalar('Q0',self.s1,i)*self.params.F
-		Q1 = self.s1*Q0
-		Q2 = (hash_to_scalar('Q2',self.s1,i) + self.s2)*self.params.F + self.r*self.params.G
+	def public_address(self,params,i=0):
+		if not isinstance(params,AddressParameters):
+			raise TypeError('Bad type for parameters!')
+		if not isinstance(i,int) or not i >= 0:
+			raise TypeError('Bad type or value for index!')
 
-		return PublicAddress(Q0,Q1,Q2)
+		d_bytes = util.chacha(self.s1,i.to_bytes(params.index_bytes,'little'))
+		d = int.from_bytes(d_bytes,'little')
+		Q1 = self.s1*hash_to_point('Spark Q1',d)
+		Q2 = (hash_to_scalar('Q2',self.s1,d) + self.s2)*self.params.F + self.r*self.params.G
+
+		return PublicAddress(d,Q1,Q2)
 
 class FullViewKey:
 	def __init__(self,params,base,s1,s2,D):
@@ -86,39 +89,29 @@ class IncomingViewKey:
 		self.params = params
 		self.base = base
 		self.s1 = s1
-		self.table = {}
 	
-		for i in range(self.params.lookahead+1):
-			entry = hash_to_scalar('Q2',self.s1,i)*self.params.F + base.Q2
-			self.table[repr(entry)] = i
+	def get_index(self,d):
+		i_bytes = util.chacha(self.s1,d.to_bytes(self.params.index_bytes,'little'))
+		i = int.from_bytes(i_bytes,'little')
 
-	def get_diversifier(self,Q2):
-		if not isinstance(Q2,Point):
-			raise TypeError('Bad type for diversifier lookup!')
-		
-		if repr(Q2) in self.table:
-			return self.table[repr(Q2)]
-		raise IndexError('Diversifier not found!')
+		return i
 
 class BaseAddress:
-	def __init__(self,Q1,Q2):
-		if not isinstance(Q1,Point):
-			raise TypeError('Bad type for base address!')
-		if not isinstance(Q2,Point):
+	def __init__(self,P2):
+		if not isinstance(P2,Point):
 			raise TypeError('Bad type for base address!')
 
-		self.Q1 = Q1
-		self.Q2 = Q2
+		self.P2 = P2
 
 class PublicAddress:
-	def __init__(self,Q0,Q1,Q2):
-		if not isinstance(Q0,Point):
-			raise TypeError('Bad type for public address!')
+	def __init__(self,d,Q1,Q2):
+		if not isinstance(d,int) or not d >= 0:
+			raise TypeError('Bad type or value for diversifier!')
 		if not isinstance(Q1,Point):
 			raise TypeError('Bad type for public address!')
 		if not isinstance(Q2,Point):
 			raise TypeError('Bad type for public address!')
 
-		self.Q0 = Q0
+		self.d = d
 		self.Q1 = Q1
 		self.Q2 = Q2

@@ -1,13 +1,13 @@
 # Coin structure
 
-from dumb25519 import Point, Scalar, PointVector, ScalarVector, random_scalar, hash_to_scalar
+from dumb25519 import Point, Scalar, PointVector, ScalarVector, hash_to_point, random_scalar, hash_to_scalar
 import address
 import bpplus
 import schnorr
 import util
 
 class CoinParameters:
-	def __init__(self,F,G,H,U,value_bytes,memo_bytes):
+	def __init__(self,F,G,H,U,index_bytes,value_bytes,memo_bytes):
 		if not isinstance(F,Point):
 			raise TypeError('Bad type for parameter F!')
 		if not isinstance(G,Point):
@@ -16,6 +16,8 @@ class CoinParameters:
 			raise TypeError('Bad type for parameter H!')
 		if not isinstance(U,Point):
 			raise TypeError('Bad type for parameter U!')
+		if not isinstance(index_bytes,int) or index_bytes < 1:
+			raise ValueError('Bad type or value for parameter index_bytes!')
 		if not isinstance(value_bytes,int) or value_bytes < 1:
 			raise ValueError('Bad type or value for parameter value_bytes!')
 		if not isinstance(memo_bytes,int) or memo_bytes < 1:
@@ -25,6 +27,7 @@ class CoinParameters:
 		self.G = G
 		self.H = H
 		self.U = U
+		self.index_bytes = index_bytes
 		self.value_bytes = value_bytes
 		self.memo_bytes = memo_bytes
 
@@ -54,7 +57,6 @@ class Coin:
 				self.C,
 				self.value,
 				self.enc,
-				self.janus,
 				self.view_tag
 			))
 		else:
@@ -64,7 +66,6 @@ class Coin:
 				self.C,
 				self.range,
 				self.enc,
-				self.janus,
 				self.view_tag
 			))
 
@@ -82,48 +83,47 @@ class Coin:
 		if not isinstance(is_output,bool):
 			raise TypeError('Bad type for coin output flag!')
 
-		# Recovery key
-		k = random_scalar()
-		self.K = k*public.Q0
-		K_der = k*public.Q1
+		# Coin seed
+		rho = random_scalar()
+			
+		# Recovery key and shared secret
+		k = hash_to_scalar('Spark k',rho)
+		self.K = k*hash_to_point('Spark diversifier',public.d)
+		shared = k*public.Q1
 
 		# View tag
-		self.view_tag = util.view_tag(K_der)
+		self.view_tag = util.view_tag(shared)
 
 		# Serial number commitment
-		self.S = hash_to_scalar('ser',K_der)*params.F + public.Q2
+		self.S = hash_to_scalar('ser',rho)*params.F + public.Q2
 
 		# Value commitment
-		self.C = Scalar(value)*params.G + hash_to_scalar('val',K_der)*params.H
+		self.C = Scalar(value)*params.G + hash_to_scalar('val',rho)*params.H
 		if not is_mint:
 			self.range = bpplus.prove(
 				bpplus.RangeStatement(bpplus.RangeParameters(params.G,params.H,8*params.value_bytes),PointVector([self.C])),
-				bpplus.RangeWitness(ScalarVector([Scalar(value)]),ScalarVector([hash_to_scalar('val',K_der)]))
+				bpplus.RangeWitness(ScalarVector([Scalar(value)]),ScalarVector([hash_to_scalar('val',rho)]))
 			)
 		
-		# Diversifier assertion
-		self.janus = schnorr.prove(
-			schnorr.SchnorrStatement(schnorr.SchnorrParameters(params.F),k*params.F),
-			schnorr.SchnorrWitness(k)
-		)
-
 		# Encrypt recipient data
-		padded_memo = memo.encode('utf-8')
-		padded_memo += bytearray(params.memo_bytes - len(padded_memo))
-		aead_key = hash_to_scalar('aead',K_der)
+		diversifier_bytes = public.d.to_bytes(params.index_bytes,'little')
+		rho_bytes = bytes.fromhex(repr(rho))[:16]
+		memo_bytes = memo.encode('utf-8')
+		memo_bytes += bytearray(params.memo_bytes - len(memo_bytes))
+		aead_key = hash_to_scalar('aead',shared)
 		if is_mint:
 			self.value = value
-			self.enc = util.aead_encrypt(aead_key,'Mint recipient data',padded_memo)
+			self.enc = util.aead_encrypt(aead_key,'Mint recipient data',diversifier_bytes + rho_bytes + memo_bytes)
 		else:
-			padded_value = value.to_bytes(params.value_bytes,'little')
-			self.enc = util.aead_encrypt(aead_key,'Spend recipient data',padded_value + padded_memo)
+			value_bytes = value.to_bytes(params.value_bytes,'little')
+			self.enc = util.aead_encrypt(aead_key,'Spend recipient data',diversifier_bytes + rho_bytes + value_bytes + memo_bytes)
 
 		# Data used for output only
 		self.is_output = False
 		if is_output:
 			self.is_output = True
-			self.k = k
-			self.Q1 = public.Q1
+			self.rho = rho
+			self.public = public
 			self.value = value
 
 		self.diversifier = None
@@ -137,41 +137,47 @@ class Coin:
 		if not isinstance(incoming,address.IncomingViewKey):
 			raise TypeError('Bad type for incoming view key!')
 	
-		K_der = incoming.s1*self.K
+		# Shared secret
+		shared = incoming.s1*self.K
 		
 		# View tag
-		if util.view_tag(K_der) != self.view_tag:
+		if util.view_tag(shared) != self.view_tag:
 			raise ArithmeticError('View tag does not match!')
 
-		# Test for diversifier
-		Q2 = self.S - hash_to_scalar('ser',K_der)*params.F
-		try:
-			self.diversifier = incoming.get_diversifier(Q2)
-			schnorr.verify(
-				schnorr.SchnorrStatement(schnorr.SchnorrParameters(params.F),hash_to_scalar('Q0',incoming.s1,self.diversifier).invert()*self.K),
-				self.janus
-			)
-		except:
-			raise ArithmeticError('Coin does not belong to this public address!')
-		
-		# Decrypt recipient data; check for diversified address consistency
-		aead_key = hash_to_scalar('aead',K_der)
+		# Decrypt recipient data
+		aead_key = hash_to_scalar('aead',shared)
 		if self.is_mint:
-			memo_bytes = util.aead_decrypt(aead_key,'Mint recipient data',self.enc)
-			if memo_bytes is not None:
-				self.memo = memo_bytes.decode('utf-8').rstrip('\x00')
+			data_bytes = util.aead_decrypt(aead_key,'Mint recipient data',self.enc)
+			if data_bytes is not None:
+				cursor = 0
+				self.diversifier = int.from_bytes(data_bytes[cursor:cursor+params.index_bytes],'little')
+				cursor += params.index_bytes
+				self.rho = Scalar(int.from_bytes(data_bytes[cursor:cursor+32],'little'))
+				cursor += 32
+				self.memo = data_bytes[cursor:].decode('utf-8').rstrip('\x00')
 			else:
 				raise ArithmeticError('Bad recipient data!')
 		else:
 			data_bytes = util.aead_decrypt(aead_key,'Spend recipient data',self.enc)
 			if data_bytes is not None:
-				self.value = int.from_bytes(data_bytes[:params.value_bytes],'little')
-				self.memo = data_bytes[params.value_bytes:].decode('utf-8').rstrip('\x00')
+				cursor = 0
+				self.diversifier = int.from_bytes(data_bytes[cursor:cursor+params.index_bytes],'little')
+				cursor += params.index_bytes
+				self.rho = Scalar(int.from_bytes(data_bytes[cursor:cursor+32],'little'))
+				cursor += 32
+				self.value = int.from_bytes(data_bytes[cursor:cursor+params.value_bytes],'little')
+				cursor += params.value_bytes
+				self.memo = data_bytes[cursor:].decode('utf-8').rstrip('\x00')
 			else:
 				raise ArithmeticError('Bad recipient data!')
-
-		# Test for value commitment
-		if not self.C == Scalar(self.value)*params.G + hash_to_scalar('val',K_der)*params.H:
+		
+		# Confirm coin construction
+		k = hash_to_scalar('Spark k',self.rho)
+		if not self.K == k*hash_to_point('Spark diversifier',self.diversifier):
+			raise ArithmeticError('Bad coin construction!')
+		if not self.S == hash_to_scalar('ser',self.rho)*params.F + incoming.base.P2:
+			raise ArithmeticError('Bad coin construction!')
+		if not self.C == Scalar(self.value)*params.G + hash_to_scalar('val',shared)*params.H:
 			raise ArithmeticError('Bad coin value commitment!')
 		
 		# Test range proof
@@ -193,9 +199,11 @@ class Coin:
 		if not self.identified:
 			raise ArithmeticError('Coin has not been identified!')
 		
+		# Shared secret
+		shared = full.s1*self.K
+		
 		# Recover serial number and generate tag
-		K_der = full.s1*self.K
-		self.s = hash_to_scalar('ser',K_der) + hash_to_scalar('Q2',full.s1,self.diversifier) + full.s2
+		self.s = hash_to_scalar('ser',shared) + hash_to_scalar('Q2',full.s1,self.diversifier) + full.s2
 		self.T = self.s.invert()*(params.U - full.D)
 
 		self.recovered = True
