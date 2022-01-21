@@ -1,16 +1,18 @@
 # Address generation
 
-from dumb25519 import Point, Scalar, hash_to_point, random_scalar, hash_to_scalar
+from dumb25519 import Point, hash_to_point, random_scalar, hash_to_scalar
 import util
 
 class AddressParameters:
 	def __init__(self,F,G,index_bytes):
 		if not isinstance(F,Point):
-			raise TypeError('Bad type for parameter F!')
+			raise TypeError
 		if not isinstance(G,Point):
-			raise TypeError('Bad type for parameter G!')
-		if not isinstance(index_bytes,int) or not index_bytes > 0:
-			raise TypeError('Bad type or value for index_bytes!')
+			raise TypeError
+		if not isinstance(index_bytes,int):
+			raise TypeError
+		if not index_bytes > 0:
+			raise ValueError
 		
 		self.F = F
 		self.G = G
@@ -19,99 +21,56 @@ class AddressParameters:
 class SpendKey:
 	def __init__(self,params):
 		if not isinstance(params,AddressParameters):
-			raise TypeError('Bad type for parameters!')
+			raise TypeError
 
 		self.params = params
 		self.s1 = random_scalar()
 		self.s2 = random_scalar()
 		self.r = random_scalar()
 	
-	def full_view_key(self):
-		s1 = self.s1
-		s2 = self.s2
-		D = self.r*self.params.G
-
-		return FullViewKey(self.params,self.base_address(),s1,s2,D)
-	
-	def incoming_view_key(self):
-		s1 = self.s1
-
-		return IncomingViewKey(self.params,self.base_address(),s1)
-	
-	def base_address(self):
-		P2 = self.s2*self.params.F + self.r*self.params.G
-
-		return BaseAddress(P2)
-	
-	def public_address(self,params,i=0):
-		if not isinstance(params,AddressParameters):
-			raise TypeError('Bad type for parameters!')
-		if not isinstance(i,int) or not i >= 0:
-			raise TypeError('Bad type or value for index!')
-
-		d_bytes = util.chacha(self.s1,i.to_bytes(params.index_bytes,'little'))
-		d = int.from_bytes(d_bytes,'little')
-		Q1 = self.s1*hash_to_point('Spark Q1',d)
-		Q2 = (hash_to_scalar('Q2',self.s1,d) + self.s2)*self.params.F + self.r*self.params.G
-
-		return PublicAddress(d,Q1,Q2)
-
 class FullViewKey:
-	def __init__(self,params,base,s1,s2,D):
-		if not isinstance(params,AddressParameters):
-			raise TypeError('Bad type for parameters!')
-		if not isinstance(base,BaseAddress):
-			raise TypeError('Bad type for base address!')
-		if not isinstance(s1,Scalar):
-			raise TypeError('Bad type for full view key!')
-		if not isinstance(s2,Scalar):
-			raise TypeError('Bad type for full view key!')
-		if not isinstance(D,Point):
-			raise TypeError('Bad type for full view key!')
+	def __init__(self,spend_key):
+		if not isinstance(spend_key,SpendKey):
+			raise TypeError
 		
-		self.params = params
-		self.base = base
-		self.s1 = s1
-		self.s2 = s2
-		self.D = D
+		self.params = spend_key.params
+		self.s1 = spend_key.s1
+		self.s2 = spend_key.s2
+		self.D = spend_key.r*self.params.G
+		self.P2 = self.s2*self.params.F + self.D
 	
 class IncomingViewKey:
-	def __init__(self,params,base,s1):
-		if not isinstance(params,AddressParameters):
-			raise TypeError('Bad type for parameters!')
-		if not isinstance(base,BaseAddress):
-			raise TypeError('Bad type for base address!')
-		if not isinstance(s1,Scalar):
-			raise TypeError('Bad type for incoming view key!')
-		if not isinstance(base,BaseAddress):
-			raise TypeError('Bad type for base address!')
-		
-		self.params = params
-		self.base = base
-		self.s1 = s1
+	def __init__(self,full_view_key):
+		if not isinstance(full_view_key,FullViewKey):
+			raise TypeError
+
+		self.params = full_view_key.params
+		self.s1 = full_view_key.s1
+		self.P2 = full_view_key.P2
 	
 	def get_index(self,d):
-		i_bytes = util.chacha(self.s1,d.to_bytes(self.params.index_bytes,'little'))
+		# Decrypt the diversifier
+		d_key = hash_to_scalar('Spark d',self.s1)
+		i_bytes = util.chacha(d_key,d.to_bytes(self.params.index_bytes,'little'))
 		i = int.from_bytes(i_bytes,'little')
 
 		return i
 
-class BaseAddress:
-	def __init__(self,P2):
-		if not isinstance(P2,Point):
-			raise TypeError('Bad type for base address!')
-
-		self.P2 = P2
-
 class PublicAddress:
-	def __init__(self,d,Q1,Q2):
-		if not isinstance(d,int) or not d >= 0:
-			raise TypeError('Bad type or value for diversifier!')
-		if not isinstance(Q1,Point):
-			raise TypeError('Bad type for public address!')
-		if not isinstance(Q2,Point):
-			raise TypeError('Bad type for public address!')
+	def __init__(self,incoming_view_key,i):
+		if not isinstance(incoming_view_key,IncomingViewKey):
+			raise TypeError
+		if not isinstance(i,int):
+			raise TypeError
+		if not i >= 0:
+			raise ValueError
+		
+		self.params = incoming_view_key.params
 
-		self.d = d
-		self.Q1 = Q1
-		self.Q2 = Q2
+		# Encrypt the diversifier
+		d_key = hash_to_scalar('Spark d',incoming_view_key.s1)
+		d_bytes = util.chacha(d_key,i.to_bytes(self.params.index_bytes,'little'))
+		d = int.from_bytes(d_bytes,'little')
+
+		self.Q1 = incoming_view_key.s1*hash_to_point('Spark div',d)
+		self.Q2 = hash_to_scalar('Spark Q2',incoming_view_key.s1,i)*self.params.F + incoming_view_key.P2
