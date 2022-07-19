@@ -219,7 +219,7 @@ class Player:
 			nonce_D = [self.L[beta][-1-u][0] for beta in self.signers]
 			nonce_E = [self.L[beta][-1-u][1] for beta in self.signers]
 
-			rho.append(hash_to_scalar('Spark multisig nonce hash',self.statement.m,self.statement.S[u],self.statement.T[u],self.signers,nonce_D,nonce_E))
+			rho.append({beta: hash_to_scalar('Spark multisig nonce hash',self.statement.m,self.statement.S[u],self.statement.T[u],self.signers,beta,nonce_D,nonce_E) for beta in self.signers})
 		
 		return rho
 
@@ -234,8 +234,8 @@ class Player:
 		
 		# Prepare binders
 		rho = self.nonce_hash()
-		rho_F_T = [hash_to_scalar('Spark multisig F/T',rho[u]) for u in range(w)]
-		rho_H = [hash_to_scalar('Spark multisig H',rho[u]) for u in range(w)]
+		rho_F_T = [hash_to_scalar('Spark multisig F/T',[rho[u][beta] for beta in sorted(rho[u])]) for u in range(w)]
+		rho_H = [hash_to_scalar('Spark multisig H',[rho[u][beta] for beta in sorted(rho[u])]) for u in range(w)]
 
 		# Compute initial proof statements
 		A1 = Z
@@ -246,8 +246,8 @@ class Player:
 
 			for beta in self.signers:
 				(D,E) = self.L[beta][-1-u]
-				A1 += D + rho[u]*E
-				A2[u] += D + rho[u]*E
+				A1 += D + rho[u][beta]*E
+				A2[u] += D + rho[u][beta]*E
 		
 		self.A1 = A1
 		self.A2 = A2
@@ -262,7 +262,7 @@ class Player:
 		for u in range(w):
 			(d,e) = self.l[-1-u]
 			self.t1.append(rho_F_T[u] + c**u*witness.x[u])
-			self._t2[self.alpha] += d + rho[u]*e + lagrange(self.alpha,self.signers)*self.r*c**u
+			self._t2[self.alpha] += d + rho[u][self.alpha]*e + lagrange(self.alpha,self.signers)*self.r*c**u
 			self.t3 += rho_H[u] + c**u*witness.z[u]
 
 		# Send to other players
@@ -291,7 +291,7 @@ class Player:
 		for u in range(len(self.statement.S)):
 			(D,E) = self.L[beta][-1-u]
 			rho = self.nonce_hash()
-			R += D + rho[u]*E + c**u*lambd*Y
+			R += D + rho[u][beta]*E + c**u*lambd*Y
 		if not t2*G == R:
 			raise ArithmeticError
 		
